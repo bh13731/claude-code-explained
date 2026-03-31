@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Architecture Deep Dive</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2129;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #c9a0ff;
+    --accent2: #79c0ff;
+    --accent3: #7ee787;
+    --accent4: #ffa657;
+    --accent5: #ff7b72;
+    --accent6: #f778ba;
+    --code-bg: #0d1117;
+    --link: #79c0ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; width: 260px; height: 100vh;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    overflow-y: auto;
+    z-index: 100;
+  }
+  nav h2 {
+    font-size: 14px; font-weight: 600;
+    color: var(--accent);
+    padding: 0 20px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  nav a {
+    display: block;
+    padding: 6px 20px;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+  nav a:hover, nav a.active {
+    color: var(--text);
+    background: rgba(201,160,255,0.06);
+    border-left-color: var(--accent);
+  }
+  nav .nav-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  nav .nav-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    padding: 0 20px 6px;
+    font-weight: 600;
+  }
+
+  /* MAIN */
+  main {
+    margin-left: 260px;
+    max-width: 920px;
+    padding: 48px 48px 120px;
+  }
+
+  /* HEADER */
+  .hero {
+    margin-bottom: 64px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 640px;
+  }
+  .hero .meta {
+    margin-top: 16px;
+    display: flex;
+    gap: 24px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .hero .meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* SECTIONS */
+  section {
+    margin-bottom: 56px;
+    scroll-margin-top: 24px;
+  }
+  section h2 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  section h2 .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    background: rgba(201,160,255,0.15);
+    color: var(--accent);
+  }
+  section > p, section > ul, section > ol {
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  section > p { max-width: 680px; }
+  section ul, section ol { padding-left: 24px; }
+  section li { margin-bottom: 6px; }
+  section li code { color: var(--accent2); }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 28px 0 10px;
+    color: var(--accent4);
+  }
+  h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--text);
+  }
+
+  /* CODE */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 12px 0 20px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.88em;
+  }
+  p code, li code {
+    background: rgba(201,160,255,0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .kw { color: var(--accent6); }
+  .fn { color: var(--accent2); }
+  .str { color: var(--accent3); }
+  .cmt { color: var(--text-dim); font-style: italic; }
+  .typ { color: var(--accent4); }
+  .num { color: var(--accent5); }
+  .op { color: var(--text-dim); }
+
+  /* FLOW DIAGRAM */
+  .flow {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 24px;
+    margin: 20px 0 28px;
+    overflow-x: auto;
+  }
+  .flow-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+  }
+  .flow-steps {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+  .flow-step {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 140px;
+    max-width: 180px;
+    text-align: center;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .flow-step .step-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .flow-step .step-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .flow-step .step-file {
+    font-size: 11px;
+    color: var(--accent2);
+    margin-top: 4px;
+    font-family: 'SF Mono', monospace;
+  }
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    color: var(--text-dim);
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  /* TABLES */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 24px;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    vertical-align: top;
+  }
+  td:first-child { color: var(--text); font-weight: 500; }
+  td code { color: var(--accent2); font-size: 12px; }
+  tr:hover td { background: rgba(201,160,255,0.03); }
+
+  /* CARDS */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 16px 0 24px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .card-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .card-value {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .card-value code { color: var(--accent2); }
+
+  /* CALLOUTS */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(201,160,255,0.05);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0 20px;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .callout.warn {
+    border-left-color: var(--accent4);
+    background: rgba(255,166,87,0.06);
+  }
+  .callout.green {
+    border-left-color: var(--accent3);
+    background: rgba(126,231,135,0.05);
+  }
+  .callout strong { color: var(--text); }
+
+  /* LAYER DIAGRAM */
+  .layers {
+    margin: 20px 0 28px;
+  }
+  .layer {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: -1px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: background 0.15s;
+  }
+  .layer:first-child { border-radius: 8px 8px 0 0; }
+  .layer:last-child { border-radius: 0 0 8px 8px; }
+  .layer:hover { background: rgba(201,160,255,0.04); }
+  .layer-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--accent);
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .layer-name {
+    font-weight: 600;
+    font-size: 14px;
+    min-width: 180px;
+  }
+  .layer-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* COLLAPSIBLE */
+  details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 12px 0;
+  }
+  details + details { margin-top: -1px; border-radius: 0; }
+  details:first-of-type { border-radius: 8px 8px 0 0; }
+  details:last-of-type { border-radius: 0 0 8px 8px; }
+  summary {
+    cursor: pointer;
+    padding: 12px 18px;
+    font-weight: 600;
+    font-size: 14px;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  summary::before {
+    content: '\25B6';
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform 0.15s;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary::-webkit-details-marker { display: none; }
+  details .details-body {
+    padding: 0 18px 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  details .details-body p { margin-bottom: 10px; }
+
+  /* HIGHLIGHT TAG */
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .tag-purple { background: rgba(201,160,255,0.15); color: var(--accent); }
+  .tag-blue { background: rgba(121,192,255,0.15); color: var(--accent2); }
+  .tag-green { background: rgba(126,231,135,0.15); color: var(--accent3); }
+  .tag-orange { background: rgba(255,166,87,0.15); color: var(--accent4); }
+  .tag-red { background: rgba(255,123,114,0.15); color: var(--accent5); }
+  .tag-pink { background: rgba(247,120,186,0.15); color: var(--accent6); }
+
+  .file-ref {
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    color: var(--accent2);
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 900px) {
+    nav { display: none; }
+    main { margin-left: 0; padding: 24px 20px 80px; }
+    .card-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <h2>Claude Code Internals</h2>
+  <a href="#overview">Overview</a>
+  <a href="#high-level">High-Level Architecture</a>
+
+  <div class="nav-section">
+    <div class="nav-section-title">The Agentic Loop</div>
+    <a href="#query-loop">The Query Loop</a>
+    <a href="#streaming">Streaming & Fallback</a>
+    <a href="#compaction">Compaction Pipeline</a>
+    <a href="#recovery">Error Recovery</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-title">Tool Execution</div>
+    <a href="#tool-system">Tool Architecture</a>
+    <a href="#tool-lifecycle">Execution Lifecycle</a>
+    <a href="#tool-concurrency">Concurrency Model</a>
+    <a href="#streaming-executor">Streaming Executor</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-title">Hooks & Permissions</div>
+    <a href="#hooks-overview">Hooks Overview</a>
+    <a href="#hook-types">Four Hook Types</a>
+    <a href="#hook-protocol">stdin/stdout Protocol</a>
+    <a href="#hook-exit-codes">Exit Code Semantics</a>
+    <a href="#permissions">Permission System</a>
+    <a href="#classifiers">Classifiers</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-title">System Prompt</div>
+    <a href="#prompt-assembly">Prompt Assembly</a>
+    <a href="#prompt-caching">Cache Boundary</a>
+    <a href="#context">Context Injection</a>
+    <a href="#memory">Memory System</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-title">Multi-Agent</div>
+    <a href="#agents">Sub-Agents</a>
+    <a href="#fork">Fork Subagent</a>
+    <a href="#coordinator">Coordinator Mode</a>
+    <a href="#swarm">Swarm Infrastructure</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-title">Internals</div>
+    <a href="#feature-flags">Feature Flags</a>
+    <a href="#speculation">Speculative Execution</a>
+    <a href="#undercover">Undercover Mode</a>
+    <a href="#cost-tracking">Cost Tracking</a>
+    <a href="#limits">Limits & Constants</a>
+  </div>
+</nav>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<div class="hero" id="overview">
+  <h1>Claude Code Architecture</h1>
+  <p class="subtitle">
+    A deep dive into Anthropic's agentic CLI &mdash; the query loop, tool execution harness, hooks system,
+    permission model, multi-agent coordination, and prompt caching strategy.
+  </p>
+  <div class="meta">
+    <span>1,902 TypeScript files</span>
+    <span>512,685 lines of code</span>
+    <span>Runtime: Bun</span>
+    <span>UI: React + Ink</span>
+  </div>
+</div>
+
+<!-- ============ HIGH LEVEL ============ -->
+<section id="high-level">
+  <h2>High-Level Architecture</h2>
+  <p>Claude Code is a terminal-based agentic coding assistant. At its core, it's a loop: send messages to the Claude API, receive tool calls, execute them with permission checks and hooks, feed results back, and repeat.</p>
+
+  <div class="flow">
+    <div class="flow-title">Core Execution Path</div>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="step-label">Entry</div>
+        <div class="step-name">REPL.tsx</div>
+        <div class="step-file">screens/REPL.tsx</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-label">Orchestrator</div>
+        <div class="step-name">QueryEngine</div>
+        <div class="step-file">QueryEngine.ts</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-label">Core Loop</div>
+        <div class="step-name">queryLoop()</div>
+        <div class="step-file">query.ts</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-label">API Call</div>
+        <div class="step-name">callModel()</div>
+        <div class="step-file">services/api/</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-label">Dispatch</div>
+        <div class="step-name">runTools()</div>
+        <div class="step-file">toolOrchestration.ts</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="step-label">Execute</div>
+        <div class="step-name">runToolUse()</div>
+        <div class="step-file">toolExecution.ts</div>
+      </div>
+    </div>
+  </div>
+
+  <p>The entire system is built as <strong>async generators</strong> &mdash; each layer yields messages upstream for the UI to render in real-time. This is what makes tool progress, streaming text, and hook feedback all appear incrementally.</p>
+</section>
+
+<!-- ============ QUERY LOOP ============ -->
+<section id="query-loop">
+  <h2>The Query Loop <span class="badge">query.ts</span></h2>
+  <p>The heart of Claude Code. <code>queryLoop()</code> is a <code>while(true)</code> loop that handles message preparation, API calls, tool execution, and error recovery across turns.</p>
+
+  <h3>Each Iteration</h3>
+  <div class="layers">
+    <div class="layer">
+      <div class="layer-num">1</div>
+      <div class="layer-name">Compaction</div>
+      <div class="layer-desc">Apply tool result budgets, snip old history, microcompact, context collapse, autocompact</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">2</div>
+      <div class="layer-name">API Streaming</div>
+      <div class="layer-desc">Call <code>callModel()</code> generator, receive text/thinking/tool_use blocks as they stream</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">3</div>
+      <div class="layer-name">Tool Dispatch</div>
+      <div class="layer-desc">Partition tool calls into concurrent/serial batches, execute with permissions and hooks</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">4</div>
+      <div class="layer-name">Result Collection</div>
+      <div class="layer-desc">Gather tool results, attachment messages, queued commands, task notifications</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">5</div>
+      <div class="layer-name">Recurse or Stop</div>
+      <div class="layer-desc">If <code>stop_reason === "tool_use"</code>, append results and loop. Otherwise, run stop hooks and return.</div>
+    </div>
+  </div>
+
+  <div class="callout green">
+    <strong>Key insight:</strong> The loop has <strong>7 different <code>continue</code> sites</strong> &mdash; collapse drain retry, reactive compact retry, max output token escalation, max output token recovery, stop hook blocking, token budget continuation, and the normal next-turn continue. Each transitions the <code>State</code> object with tracking of <em>why</em> the continue happened.
+  </div>
+</section>
+
+<!-- ============ STREAMING ============ -->
+<section id="streaming">
+  <h2>Streaming & Fallback</h2>
+  <p>The API call uses a generator (<code>callModel()</code>) that yields <code>StreamEvent</code> messages as they arrive from the Anthropic API. Text, thinking blocks, and tool_use blocks arrive incrementally.</p>
+
+  <h3>Streaming Tool Executor</h3>
+  <p>While the model is still generating, tool_use blocks that have completed streaming are <strong>immediately dispatched for execution</strong> via the <code>StreamingToolExecutor</code>. This means tools can finish before the model even stops generating.</p>
+
+<pre><span class="cmt">// While model still streams, start executing completed tool_use blocks</span>
+<span class="kw">if</span> (streamingToolExecutor) {
+  streamingToolExecutor.<span class="fn">addTool</span>(toolUseBlock)       <span class="cmt">// Feed in as they arrive</span>
+  <span class="kw">yield*</span> streamingToolExecutor.<span class="fn">drainResults</span>()     <span class="cmt">// Yield completed results</span>
+}</pre>
+
+  <h3>Fallback Model</h3>
+  <p>If the primary model throws a <code>FallbackTriggeredError</code> (overloaded, rate limited), the loop catches it, clears partial state, switches to the fallback model, and retries from the same point. Thinking blocks are stripped from the retry to avoid signature mismatches between models.</p>
+</section>
+
+<!-- ============ COMPACTION ============ -->
+<section id="compaction">
+  <h2>Compaction Pipeline <span class="badge">5 Layers</span></h2>
+  <p>Before each API call, the conversation is compressed through up to 5 stages to stay within context limits:</p>
+
+  <table>
+    <tr><th>Stage</th><th>Strategy</th><th>When</th></tr>
+    <tr>
+      <td>Tool Result Budget</td>
+      <td>Limits per-message tool output size</td>
+      <td>Always</td>
+    </tr>
+    <tr>
+      <td>History Snip</td>
+      <td>Removes messages beyond a threshold</td>
+      <td><code>HISTORY_SNIP</code> gate</td>
+    </tr>
+    <tr>
+      <td>Microcompact</td>
+      <td>Client-side tool call summarization (time-based decay)</td>
+      <td>Always</td>
+    </tr>
+    <tr>
+      <td>Context Collapse</td>
+      <td>Strategic staged summaries at breakpoints</td>
+      <td><code>CONTEXT_COLLAPSE</code> gate</td>
+    </tr>
+    <tr>
+      <td>Autocompact</td>
+      <td>Full conversation summary when over token limit</td>
+      <td>When approaching limit</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <strong>Post-compact restoration:</strong> After a full compact, up to 5 recently-read files are re-injected (budget: 50K tokens total, 5K per file) so the model doesn't lose track of what it was working on.
+  </div>
+</section>
+
+<!-- ============ ERROR RECOVERY ============ -->
+<section id="recovery">
+  <h2>Error Recovery</h2>
+  <p>The query loop has multiple recovery strategies that fire in escalating order:</p>
+
+  <table>
+    <tr><th>Error</th><th>Recovery</th><th>Max Retries</th></tr>
+    <tr>
+      <td>Prompt too long</td>
+      <td>1. Drain staged context collapses<br>2. Reactive compact (full summary)</td>
+      <td>Until exhausted</td>
+    </tr>
+    <tr>
+      <td>Max output tokens</td>
+      <td>1. Escalate to 64K cap<br>2. Multi-turn recovery with nudge message</td>
+      <td>3 turns</td>
+    </tr>
+    <tr>
+      <td>Model overloaded</td>
+      <td>Switch to fallback model, strip thinking blocks, retry</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>Abort (Ctrl+C)</td>
+      <td>Synthetic tool_results for orphaned tool_use blocks, cleanup hooks</td>
+      <td>&mdash;</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ============ TOOL SYSTEM ============ -->
+<section id="tool-system">
+  <h2>Tool Architecture <span class="badge">Tool.ts</span></h2>
+  <p>Every tool is built with <code>buildTool()</code> which applies <strong>fail-closed defaults</strong>:</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-label" style="color:var(--accent5)">Defaults (safe)</div>
+      <div class="card-value">
+        <code>isConcurrencySafe: false</code><br>
+        <code>isReadOnly: false</code><br>
+        <code>isDestructive: false</code><br>
+        <code>isEnabled: true</code>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent3)">Must Opt In</div>
+      <div class="card-value">
+        Tools must explicitly declare themselves safe for concurrency, read-only, or non-destructive. The default assumes the worst.
+      </div>
+    </div>
+  </div>
+
+  <h3>Tool Capabilities</h3>
+  <table>
+    <tr><th>Property</th><th>Purpose</th></tr>
+    <tr><td><code>inputSchema</code></td><td>Zod v4 schema for input validation</td></tr>
+    <tr><td><code>call()</code></td><td>The actual execution function</td></tr>
+    <tr><td><code>checkPermissions()</code></td><td>Tool-specific permission logic</td></tr>
+    <tr><td><code>preparePermissionMatcher()</code></td><td>Normalizes input for permission rule matching</td></tr>
+    <tr><td><code>backfillObservableInput()</code></td><td>Adds legacy fields before permission checks</td></tr>
+    <tr><td><code>maxResultSizeChars</code></td><td>Limit before result is persisted to disk</td></tr>
+    <tr><td><code>searchHint</code></td><td>3-10 word description for ToolSearch matching</td></tr>
+    <tr><td><code>isDeferred</code></td><td>Schema loaded lazily via ToolSearch</td></tr>
+  </table>
+</section>
+
+<!-- ============ TOOL LIFECYCLE ============ -->
+<section id="tool-lifecycle">
+  <h2>Tool Execution Lifecycle <span class="badge">toolExecution.ts</span></h2>
+  <p>Every tool call follows this exact sequence:</p>
+
+<pre>
+<span class="fn">runToolUse</span>(toolUseBlock)
+  <span class="cmt">// 1. Find tool by name (with deprecated alias fallback)</span>
+  <span class="cmt">// 2. Validate input against Zod schema</span>
+  <span class="cmt">// 3. Run PreToolUse hooks</span>
+  &rarr; <span class="fn">executePreToolHooks</span>(toolName, input)
+      <span class="cmt">// Hooks can: approve, deny, modify input, inject context</span>
+
+  <span class="cmt">// 4. Check permissions</span>
+  &rarr; <span class="fn">resolveHookPermissionDecision</span>()
+      <span class="cmt">// Combines hook decision + canUseTool() + rule-based checks</span>
+      <span class="cmt">// Priority: deny > ask > allow > passthrough</span>
+
+  <span class="cmt">// 5. Execute tool</span>
+  &rarr; tool.<span class="fn">call</span>(validatedInput, context)
+      <span class="cmt">// Returns: { data, newMessages?, success }</span>
+
+  <span class="cmt">// 6. Run PostToolUse hooks</span>
+  &rarr; <span class="fn">runPostToolUseHooks</span>(toolName, input, output)
+      <span class="cmt">// Hooks can: modify MCP output, inject context, stop continuation</span>
+
+  <span class="cmt">// 7. On error: run PostToolUseFailure hooks instead</span>
+</pre>
+
+  <div class="callout warn">
+    <strong>Permission precedence:</strong> A PreToolUse hook returning <code>"allow"</code> does <strong>NOT</strong> bypass settings.json deny/ask rules. The hook permission and the rule-based permission are combined, with deny always winning.
+  </div>
+</section>
+
+<!-- ============ TOOL CONCURRENCY ============ -->
+<section id="tool-concurrency">
+  <h2>Concurrency Model <span class="badge">toolOrchestration.ts</span></h2>
+  <p>When the model returns multiple tool_use blocks, they're partitioned into batches:</p>
+
+<pre>
+<span class="fn">partitionToolCalls</span>([Read, Read, Edit, Grep, Bash])
+  &rarr; Batch 1: [Read, Read]         <span class="cmt">// concurrent (both read-only)</span>
+  &rarr; Batch 2: [Edit]               <span class="cmt">// serial (writes)</span>
+  &rarr; Batch 3: [Grep]               <span class="cmt">// concurrent (read-only)</span>
+  &rarr; Batch 4: [Bash]               <span class="cmt">// serial (not concurrency-safe)</span>
+</pre>
+
+  <p>Concurrent batches run up to <strong>10 tools in parallel</strong>. Context modifiers from concurrent tools are queued and applied after the batch completes. Serial tools apply context modifiers immediately.</p>
+</section>
+
+<!-- ============ STREAMING EXECUTOR ============ -->
+<section id="streaming-executor">
+  <h2>Streaming Tool Executor</h2>
+  <p>The most interesting optimization: tools start executing <strong>while the model is still generating</strong>.</p>
+
+  <div class="flow">
+    <div class="flow-title">Timeline</div>
+    <div class="flow-steps">
+      <div class="flow-step" style="min-width:200px">
+        <div class="step-label">API Stream</div>
+        <div class="step-name">Model generates tool_use blocks...</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step" style="min-width:200px">
+        <div class="step-label">Parallel</div>
+        <div class="step-name">Completed blocks dispatched immediately</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step" style="min-width:200px">
+        <div class="step-label">Result</div>
+        <div class="step-name">Tool results ready before model stops</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOOKS OVERVIEW ============ -->
+<section id="hooks-overview">
+  <h2>Hooks System <span class="badge">5,000+ lines</span></h2>
+  <p>The hooks system is the extensibility layer of the harness. There are <strong>25+ hook events</strong> across the entire lifecycle:</p>
+
+  <table>
+    <tr><th>Event</th><th>When</th><th>Can Do</th></tr>
+    <tr><td><code>PreToolUse</code></td><td>Before tool execution</td><td>Block, modify input, set permission</td></tr>
+    <tr><td><code>PostToolUse</code></td><td>After tool success</td><td>Modify MCP output, inject context</td></tr>
+    <tr><td><code>PostToolUseFailure</code></td><td>After tool error</td><td>React to failures</td></tr>
+    <tr><td><code>UserPromptSubmit</code></td><td>User sends message</td><td>Transform/block input</td></tr>
+    <tr><td><code>Stop</code></td><td>Model finishes turn</td><td>Block stop with feedback, rewake</td></tr>
+    <tr><td><code>SessionStart</code></td><td>Session begins</td><td>Setup, inject context, set watch paths</td></tr>
+    <tr><td><code>SessionEnd</code></td><td>Session ends</td><td>Teardown</td></tr>
+    <tr><td><code>SubagentStart/Stop</code></td><td>Agent spawning</td><td>Track sub-agents</td></tr>
+    <tr><td><code>PreCompact/PostCompact</code></td><td>Context compression</td><td>React to compaction</td></tr>
+    <tr><td><code>FileChanged</code></td><td>FS watch fires</td><td>React to external changes</td></tr>
+    <tr><td><code>PermissionRequest</code></td><td>Permission check</td><td>Custom permission logic</td></tr>
+  </table>
+
+  <h3>Hook Configuration</h3>
+  <p>Hooks are configured in <code>settings.json</code> at user, project, or policy level:</p>
+
+<pre>{
+  <span class="str">"hooks"</span>: {
+    <span class="str">"PreToolUse"</span>: [
+      {
+        <span class="str">"matcher"</span>: <span class="str">"Bash"</span>,
+        <span class="str">"hooks"</span>: [
+          {
+            <span class="str">"type"</span>: <span class="str">"command"</span>,
+            <span class="str">"command"</span>: <span class="str">"my-lint-check.sh"</span>,
+            <span class="str">"if"</span>: <span class="str">"Bash(npm *)"</span>,
+            <span class="str">"timeout"</span>: <span class="num">10</span>
+          }
+        ]
+      }
+    ]
+  }
+}</pre>
+</section>
+
+<!-- ============ HOOK TYPES ============ -->
+<section id="hook-types">
+  <h2>Four Hook Types</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-label" style="color:var(--accent2)">command</div>
+      <div class="card-value">
+        Spawns a shell process. Receives JSON on <strong>stdin</strong>, returns JSON on <strong>stdout</strong>.
+        Supports <code>async</code> and <code>asyncRewake</code> for background execution.
+        Shell can be <code>bash</code> or <code>powershell</code>.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent3)">prompt</div>
+      <div class="card-value">
+        Sends a prompt to an LLM for evaluation. Supports <code>$ARGUMENTS</code> placeholder.
+        Can specify a different model (e.g. <code>claude-sonnet-4-6</code>).
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent4)">http</div>
+      <div class="card-value">
+        POSTs JSON to an external URL. Headers can interpolate env vars via <code>$VAR_NAME</code>
+        (requires <code>allowedEnvVars</code> list). Must return JSON.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent6)">agent</div>
+      <div class="card-value">
+        Spins up a full agentic verification loop with a prompt.
+        Can specify model. Returns structured <code>HookJSONOutput</code>.
+      </div>
+    </div>
+  </div>
+
+  <h3>Matchers & Conditions</h3>
+  <p>Each hook entry has a <code>matcher</code> (which tool to match) and optional <code>if</code> condition:</p>
+  <ul>
+    <li><code>"matcher": "Write"</code> &mdash; exact match on tool name</li>
+    <li><code>"matcher": "Write|Edit"</code> &mdash; pipe-separated alternatives</li>
+    <li><code>"matcher": "^Write.*"</code> &mdash; regex match</li>
+    <li><code>"matcher": "*"</code> &mdash; matches all tools</li>
+    <li><code>"if": "Bash(git *)"</code> &mdash; permission rule syntax, filters <em>before spawning</em></li>
+  </ul>
+</section>
+
+<!-- ============ HOOK PROTOCOL ============ -->
+<section id="hook-protocol">
+  <h2>stdin/stdout Protocol <span class="badge">Command Hooks</span></h2>
+  <p>Command hooks communicate via JSON over stdin/stdout. Here's the exact protocol:</p>
+
+  <h3>Input (stdin)</h3>
+<pre>{
+  <span class="str">"session_id"</span>: <span class="str">"uuid"</span>,
+  <span class="str">"transcript_path"</span>: <span class="str">"/path/to/transcript.jsonl"</span>,
+  <span class="str">"cwd"</span>: <span class="str">"/working/directory"</span>,
+  <span class="str">"permission_mode"</span>: <span class="str">"default"</span>,
+  <span class="str">"hook_event_name"</span>: <span class="str">"PreToolUse"</span>,
+  <span class="str">"tool_name"</span>: <span class="str">"Bash"</span>,
+  <span class="str">"tool_input"</span>: { <span class="str">"command"</span>: <span class="str">"git status"</span> },
+  <span class="str">"tool_use_id"</span>: <span class="str">"toolu_abc123"</span>
+}</pre>
+
+  <h3>Output (stdout)</h3>
+<pre>{
+  <span class="str">"decision"</span>: <span class="str">"approve"</span>,               <span class="cmt">// or "block"</span>
+  <span class="str">"reason"</span>: <span class="str">"Looks safe"</span>,
+  <span class="str">"hookSpecificOutput"</span>: {
+    <span class="str">"hookEventName"</span>: <span class="str">"PreToolUse"</span>,
+    <span class="str">"permissionDecision"</span>: <span class="str">"allow"</span>,     <span class="cmt">// "allow" | "deny" | "ask"</span>
+    <span class="str">"updatedInput"</span>: { <span class="str">"command"</span>: <span class="str">"git status --short"</span> },
+    <span class="str">"additionalContext"</span>: <span class="str">"Reminder: this repo uses trunk-based development"</span>
+  }
+}</pre>
+
+  <h3>Async Detection</h3>
+  <p>A hook can background itself by emitting this as its <strong>first line of stdout</strong>:</p>
+<pre>{ <span class="str">"async"</span>: <span class="kw">true</span>, <span class="str">"asyncTimeout"</span>: <span class="num">5000</span> }</pre>
+  <p>The harness immediately returns an empty result and the hook continues running in the <code>AsyncHookRegistry</code>. If <code>asyncRewake</code> is set and the hook exits with code 2, it re-wakes the model with its output.</p>
+</section>
+
+<!-- ============ EXIT CODES ============ -->
+<section id="hook-exit-codes">
+  <h2>Exit Code Semantics</h2>
+
+  <table>
+    <tr><th>Exit Code</th><th>Behavior</th><th>Who Sees Output</th></tr>
+    <tr>
+      <td><span class="tag tag-green">0</span></td>
+      <td>Success</td>
+      <td>stdout shown in transcript mode only (Ctrl+O)</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-orange">2</span></td>
+      <td>Blocking error &mdash; halts tool execution</td>
+      <td>stderr injected into conversation as system message (<strong>the model sees it</strong>)</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-red">1, 3+</span></td>
+      <td>Non-blocking error</td>
+      <td>stderr shown to user only, not to model</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <strong>Exit code 2 is the power feature.</strong> It lets a hook inject feedback directly into the model's context. Example: a linter hook that returns exit 2 with the lint errors &mdash; the model sees them and can fix the code.
+  </div>
+</section>
+
+<!-- ============ PERMISSIONS ============ -->
+<section id="permissions">
+  <h2>Permission System <span class="badge">5 Rule Sources</span></h2>
+  <p>Every tool invocation passes through a multi-layer permission check:</p>
+
+  <div class="layers">
+    <div class="layer">
+      <div class="layer-num">1</div>
+      <div class="layer-name">Policy Settings</div>
+      <div class="layer-desc">Admin-enforced, managed remotely. Highest priority &mdash; cannot be overridden.</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">2</div>
+      <div class="layer-name">User Settings</div>
+      <div class="layer-desc"><code>~/.claude/settings.json</code> &mdash; user's global preferences</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">3</div>
+      <div class="layer-name">Project Settings</div>
+      <div class="layer-desc"><code>.claude/settings.json</code> &mdash; repo-level configuration</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">4</div>
+      <div class="layer-name">CLI Arguments</div>
+      <div class="layer-desc"><code>--allow</code> / <code>--deny</code> flags on invocation</div>
+    </div>
+    <div class="layer">
+      <div class="layer-num">5</div>
+      <div class="layer-name">Session Rules</div>
+      <div class="layer-desc">Transient rules set during the session via REPL commands</div>
+    </div>
+  </div>
+
+  <h3>Permission Behaviors</h3>
+  <ul>
+    <li><code>allow</code> &mdash; tool runs without prompting</li>
+    <li><code>deny</code> &mdash; tool is blocked, model sees denial message</li>
+    <li><code>ask</code> &mdash; user is prompted interactively</li>
+  </ul>
+
+  <h3>Rule Syntax</h3>
+<pre><span class="cmt">// Allow all git commands</span>
+{ <span class="str">"tool"</span>: <span class="str">"Bash(git *)"</span>, <span class="str">"permission"</span>: <span class="str">"allow"</span> }
+
+<span class="cmt">// Deny writes to node_modules</span>
+{ <span class="str">"tool"</span>: <span class="str">"Write(node_modules/**)"</span>, <span class="str">"permission"</span>: <span class="str">"deny"</span> }
+
+<span class="cmt">// Ask before any destructive bash command</span>
+{ <span class="str">"tool"</span>: <span class="str">"Bash(rm *)"</span>, <span class="str">"permission"</span>: <span class="str">"ask"</span> }</pre>
+
+  <p>Rules use bash-style glob patterns. Tools implement <code>preparePermissionMatcher()</code> to normalize their input for pattern matching (e.g., FileEditTool matches against file paths, BashTool matches against commands).</p>
+</section>
+
+<!-- ============ CLASSIFIERS ============ -->
+<section id="classifiers">
+  <h2>Speculative Classifiers</h2>
+  <p>In auto-mode, two classifiers run <strong>speculatively in the background</strong> while the permission prompt is shown to the user:</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-label" style="color:var(--accent2)">Bash Classifier</div>
+      <div class="card-value">
+        Trained on safe bash patterns. Runs with a 2-second timeout.
+        If it classifies a command as safe before the user responds, auto-approves.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent3)">Transcript Classifier</div>
+      <div class="card-value">
+        Analyzes the full conversation transcript to determine if a tool call is safe.
+        More powerful but slower than bash classifier.
+      </div>
+    </div>
+  </div>
+
+  <p>Both are gated by feature flags (<code>BASH_CLASSIFIER</code>, <code>TRANSCRIPT_CLASSIFIER</code>). There's also <strong>denial tracking</strong> &mdash; after N auto-denials, the system falls back to interactive prompting.</p>
+</section>
+
+<!-- ============ PROMPT ASSEMBLY ============ -->
+<section id="prompt-assembly">
+  <h2>System Prompt Assembly</h2>
+  <p>The system prompt is built from a <strong>5-level priority stack</strong>:</p>
+
+  <table>
+    <tr><th>Priority</th><th>Source</th><th>Behavior</th></tr>
+    <tr>
+      <td>0 (highest)</td>
+      <td>Override</td>
+      <td>Replaces everything. Used by loop mode, testing.</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Coordinator</td>
+      <td>Multi-worker mode prompt. Feature-gated.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Agent</td>
+      <td>Sub-agent definitions. In proactive mode: <em>appended</em> to default. Otherwise: <em>replaces</em> default.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Custom</td>
+      <td><code>--system-prompt</code> flag.</td>
+    </tr>
+    <tr>
+      <td>4 (lowest)</td>
+      <td>Default</td>
+      <td>The standard Claude Code prompt.</td>
+    </tr>
+  </table>
+
+  <p><code>appendSystemPrompt</code> is always added at the end (unless override is set).</p>
+
+  <h3>Default Prompt Sections</h3>
+  <p>The default system prompt is assembled from these sections in <code>prompts.ts</code>:</p>
+  <ol>
+    <li>Intro (model description, safety instructions)</li>
+    <li>System section (tool execution, tags, compression)</li>
+    <li>Doing tasks section (task approach guidance)</li>
+    <li>Actions section (reversibility, blast radius)</li>
+    <li>Using your tools section (tool-specific instructions)</li>
+    <li>Tone and style section</li>
+    <li>Output efficiency section</li>
+    <li><strong>&mdash; DYNAMIC BOUNDARY &mdash;</strong></li>
+    <li>Session guidance, memory, environment info, language, output style, MCP instructions...</li>
+  </ol>
+</section>
+
+<!-- ============ PROMPT CACHING ============ -->
+<section id="prompt-caching">
+  <h2>Cache Boundary <span class="badge">Critical Optimization</span></h2>
+
+  <p>The system prompt is split at <code>__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__</code>:</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-label" style="color:var(--accent3)">Before Boundary (scope: global)</div>
+      <div class="card-value">
+        Static instructions, tool descriptions, safety rules. <strong>Cacheable across all users and organizations.</strong>
+        Computed once, reused for every API call.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent4)">After Boundary (scope: session)</div>
+      <div class="card-value">
+        User context, CLAUDE.md files, git status, memory, MCP instructions.
+        <strong>User/session-specific, not cached cross-org.</strong>
+      </div>
+    </div>
+  </div>
+
+  <h3>Section Caching</h3>
+  <p>Dynamic sections use two caching strategies:</p>
+  <ul>
+    <li><code>systemPromptSection()</code> &mdash; computed once, cached until <code>/clear</code> or <code>/compact</code></li>
+    <li><code>DANGEROUS_uncachedSystemPromptSection()</code> &mdash; recomputed every turn, breaks prompt cache on changes. Used for MCP instructions (servers connect/disconnect between turns)</li>
+  </ul>
+</section>
+
+<!-- ============ CONTEXT ============ -->
+<section id="context">
+  <h2>Context Injection</h2>
+  <p>Two context objects are injected alongside the system prompt:</p>
+
+  <h3>System Context</h3>
+  <ul>
+    <li><strong>Git status</strong> &mdash; branch, main branch, status (max 2,000 chars), recent commits, git user</li>
+    <li><strong>Cache breaker</strong> &mdash; ANT-only ephemeral injection for debugging</li>
+  </ul>
+
+  <h3>User Context</h3>
+  <ul>
+    <li><strong>CLAUDE.md files</strong> &mdash; auto-discovered via directory walk, filtered to remove injected memory files</li>
+    <li><strong>Current date</strong> &mdash; always included</li>
+  </ul>
+
+  <p>System context is prepended, user context is appended. Both are memoized at module load and cached for the session.</p>
+</section>
+
+<!-- ============ MEMORY ============ -->
+<section id="memory">
+  <h2>Memory System <span class="badge">memdir/</span></h2>
+  <p>Persistent memory stored in <code>~/.claude/projects/&lt;slug&gt;/memory/</code>:</p>
+
+  <table>
+    <tr><th>Constant</th><th>Value</th></tr>
+    <tr><td>Max MEMORY.md lines</td><td>200</td></tr>
+    <tr><td>Max MEMORY.md bytes</td><td>25,000</td></tr>
+    <tr><td>Memory types</td><td>user, feedback, project, reference</td></tr>
+  </table>
+
+  <h3>Three Memory Modes</h3>
+  <details>
+    <summary>Daily-Log Mode (KAIROS)</summary>
+    <div class="details-body">
+      <p>Append-only daily logs at <code>memory/logs/YYYY/MM/YYYY-MM-DD.md</code>. No MEMORY.md content loading. Used in assistant/proactive mode.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Team Memory Mode (TEAMMEM)</summary>
+    <div class="details-body">
+      <p>Sync'd across teammates via <code>permissionSync.ts</code>. Secret-guarded: <code>checkTeamMemSecrets()</code> prevents committing credentials to shared memory.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Auto Memory (default)</summary>
+    <div class="details-body">
+      <p>Standard mode. Memory directory created idempotently once per session. Builds behavioral instructions + MEMORY.md content into system prompt. Auto-extracted from conversations via <code>extractMemories</code> service.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============ AGENTS ============ -->
+<section id="agents">
+  <h2>Sub-Agent System <span class="badge">AgentTool</span></h2>
+  <p>The <code>AgentTool</code> spawns isolated sub-agents that run their own query loops with restricted tool sets.</p>
+
+  <h3>Agent Properties</h3>
+  <ul>
+    <li>Each agent gets a <code>subagent_type</code>, custom system prompt, and tool restrictions</li>
+    <li>Optional <code>isolation: "worktree"</code> for git worktree isolation</li>
+    <li>Auto-backgrounds after 120 seconds (GrowthBook-gated)</li>
+    <li>Background tasks disabled globally via <code>CLAUDE_CODE_DISABLE_BACKGROUND_TASKS</code></li>
+    <li>Results arrive as <code>&lt;task-notification&gt;</code> XML blocks</li>
+  </ul>
+</section>
+
+<!-- ============ FORK ============ -->
+<section id="fork">
+  <h2>Fork Subagent <span class="badge">FORK_SUBAGENT gate</span></h2>
+  <p>The most sophisticated agent pattern. When enabled, omitting <code>subagent_type</code> triggers an <strong>implicit fork</strong> of the current agent.</p>
+
+  <h3>Cache Optimization</h3>
+  <p>Fork children receive the parent's <strong>exact system prompt bytes</strong> to preserve prompt cache identity. The fork message contains:</p>
+  <ul>
+    <li>The entire parent assistant message (all tool_use blocks, thinking, text)</li>
+    <li><strong>Identical placeholder tool results</strong> for all sibling forks: <code>"Fork started &mdash; processing in background"</code></li>
+    <li>Only the final text block differs per child (the directive)</li>
+  </ul>
+  <p>This maximizes cache hits across siblings &mdash; the messages are identical until the final divergence point.</p>
+
+  <h3>Fork Child Rules</h3>
+  <ol>
+    <li>You ARE a fork &mdash; don't spawn sub-agents</li>
+    <li>No conversation; use tools directly</li>
+    <li>Commit changes before reporting (include hash)</li>
+    <li>Minimal output: "Scope:", "Result:", "Key files:" format</li>
+  </ol>
+</section>
+
+<!-- ============ COORDINATOR ============ -->
+<section id="coordinator">
+  <h2>Coordinator Mode</h2>
+  <p>Gate: <code>COORDINATOR_MODE</code> + <code>CLAUDE_CODE_COORDINATOR_MODE</code> env var.</p>
+  <p>A single coordinator spawns multiple <strong>worker agents</strong> via the Agent tool. Workers run as background agents with restricted tool sets:</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-label" style="color:var(--accent2)">Simple Mode</div>
+      <div class="card-value">Workers get: Bash, Read, Edit only</div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="color:var(--accent4)">Full Mode</div>
+      <div class="card-value">Workers get all tools except: TeamCreate, TeamDelete, SendMessage, StructuredOutput</div>
+    </div>
+  </div>
+
+  <p>Workers can share knowledge via a <strong>scratchpad directory</strong> (gated by <code>tengu_scratch</code>). The coordinator waits for actual results &mdash; no prediction.</p>
+</section>
+
+<!-- ============ SWARM ============ -->
+<section id="swarm">
+  <h2>Swarm Infrastructure</h2>
+  <p>Full multi-process agent orchestration with multiple terminal backends:</p>
+
+  <table>
+    <tr><th>Backend</th><th>File</th><th>How</th></tr>
+    <tr><td>In-Process</td><td><code>inProcessRunner.ts</code></td><td>Isolated agent in same process (53KB)</td></tr>
+    <tr><td>tmux</td><td><code>backends/tmux</code></td><td>Spawns panes in tmux session</td></tr>
+    <tr><td>iTerm2</td><td><code>backends/iterm2</code></td><td>Uses iTerm2 scripting API</td></tr>
+    <tr><td>Kitty</td><td><code>backends/kitty</code></td><td>Uses Kitty remote control</td></tr>
+  </table>
+
+  <p>Permission bubbling: teammate agents can escalate permission requests up to the leader. Team files managed via <code>teamHelpers.ts</code> with task numbering.</p>
+</section>
+
+<!-- ============ FEATURE FLAGS ============ -->
+<section id="feature-flags">
+  <h2>Feature Flags <span class="badge">~50+ gates</span></h2>
+  <p>Bun's <code>feature()</code> function enables build-time dead code elimination. Disabled features are <strong>completely stripped from the binary</strong>.</p>
+
+  <table>
+    <tr><th>Gate</th><th>Controls</th></tr>
+    <tr><td><code>PROACTIVE</code> / <code>KAIROS</code></td><td>Autonomous assistant mode, daily logs, brief tool</td></tr>
+    <tr><td><code>COORDINATOR_MODE</code></td><td>Multi-worker orchestration</td></tr>
+    <tr><td><code>FORK_SUBAGENT</code></td><td>Implicit fork delegation</td></tr>
+    <tr><td><code>VOICE_MODE</code></td><td>Voice input command</td></tr>
+    <tr><td><code>AGENT_TRIGGERS</code></td><td>Cron-scheduled agents</td></tr>
+    <tr><td><code>BRIDGE_MODE</code></td><td>IDE extension communication</td></tr>
+    <tr><td><code>CACHED_MICROCOMPACT</code></td><td>Prompt cache-aware compaction</td></tr>
+    <tr><td><code>TRANSCRIPT_CLASSIFIER</code></td><td>Auto-mode transcript analysis</td></tr>
+    <tr><td><code>BASH_CLASSIFIER</code></td><td>Auto-mode bash safety check</td></tr>
+    <tr><td><code>TOKEN_BUDGET</code></td><td>Per-task token budget tracking</td></tr>
+    <tr><td><code>CONTEXT_COLLAPSE</code></td><td>Staged context summaries</td></tr>
+    <tr><td><code>HISTORY_SNIP</code></td><td>Old history removal</td></tr>
+    <tr><td><code>REACTIVE_COMPACT</code></td><td>On-error full compaction</td></tr>
+    <tr><td><code>EXPERIMENTAL_SKILL_SEARCH</code></td><td>Skill discovery</td></tr>
+    <tr><td><code>TEAMMEM</code></td><td>Team memory sync</td></tr>
+  </table>
+
+  <h3>ANT-Only Code</h3>
+  <p><code>process.env.USER_TYPE === 'ant'</code> is a <strong>build-time constant</strong>. Ant-only features are DCE'd from external builds:</p>
+  <ul>
+    <li>Remote isolation mode for agents</li>
+    <li><code>agents-platform</code> command</li>
+    <li>Internal telemetry, cache breaking injection</li>
+    <li>Numeric length anchors (token reduction hints)</li>
+    <li>Model codename references</li>
+  </ul>
+</section>
+
+<!-- ============ SPECULATION ============ -->
+<section id="speculation">
+  <h2>Speculative Execution <span class="badge">Hidden Feature</span></h2>
+  <p>Claude Code can <strong>speculatively execute the next task in the background</strong> before you even ask.</p>
+
+  <h3>How It Works</h3>
+  <ol>
+    <li>After completing a turn, a forked agent runs in an <strong>isolated overlay directory</strong></li>
+    <li>The overlay allows write tools (Edit, Write) to modify copies of files</li>
+    <li>Read-only tools (Read, Glob, Grep) access the real filesystem</li>
+    <li>Max 20 turns, 100 messages per speculation</li>
+    <li>If the user accepts the suggestion, overlay files are <strong>copied to the real working directory</strong></li>
+    <li>If rejected, the overlay is discarded</li>
+  </ol>
+
+  <div class="callout green">
+    <strong>This is why Claude Code feels fast.</strong> It's pre-computing work speculatively so results appear instant when you accept a suggestion.
+  </div>
+</section>
+
+<!-- ============ UNDERCOVER ============ -->
+<section id="undercover">
+  <h2>Undercover Mode <span class="badge">ANT-Only</span></h2>
+  <p>When Anthropic engineers use Claude Code on public repos, this auto-activates:</p>
+  <ul>
+    <li>Strips model codenames (Tengu, Capybara, etc.) from commits and PRs</li>
+    <li>Strips internal repo names and Slack references</li>
+    <li>External repos are default &mdash; only an internal allowlist turns it off</li>
+    <li><strong>No force-off</strong> &mdash; safety guarantee that codenames never leak</li>
+    <li>Controlled via <code>CLAUDE_CODE_UNDERCOVER=1</code> or auto-detection</li>
+  </ul>
+</section>
+
+<!-- ============ COST TRACKING ============ -->
+<section id="cost-tracking">
+  <h2>Cost Tracking <span class="badge">cost-tracker.ts</span></h2>
+  <p>Token usage and costs are tracked per-session and persisted across resumes:</p>
+  <ul>
+    <li>Input, output, cache read, cache write tokens tracked per model</li>
+    <li>API duration, tool duration, wall duration tracked</li>
+    <li>Lines of code changed tracked</li>
+    <li>FPS metrics (terminal rendering performance) optionally captured</li>
+    <li>Advisor tool usage tracked recursively</li>
+    <li>Persisted to project config on session switch, restored on resume</li>
+  </ul>
+</section>
+
+<!-- ============ LIMITS ============ -->
+<section id="limits">
+  <h2>Limits & Constants</h2>
+
+  <table>
+    <tr><th>Limit</th><th>Value</th><th>Where</th></tr>
+    <tr><td>MEMORY.md max lines</td><td>200</td><td><code>memdir.ts</code></td></tr>
+    <tr><td>MEMORY.md max bytes</td><td>25,000</td><td><code>memdir.ts</code></td></tr>
+    <tr><td>Git status max chars</td><td>2,000</td><td><code>context.ts</code></td></tr>
+    <tr><td>Max concurrent tools</td><td>10</td><td><code>toolOrchestration.ts</code></td></tr>
+    <tr><td>Max output token recovery turns</td><td>3</td><td><code>query.ts</code></td></tr>
+    <tr><td>Max compact retries</td><td>2</td><td><code>compact.ts</code></td></tr>
+    <tr><td>Post-compact restored files</td><td>5</td><td><code>compact.ts</code></td></tr>
+    <tr><td>Post-compact token budget</td><td>50,000</td><td><code>compact.ts</code></td></tr>
+    <tr><td>Post-compact per file max</td><td>5,000 tokens</td><td><code>compact.ts</code></td></tr>
+    <tr><td>Speculation max turns</td><td>20</td><td><code>speculation.ts</code></td></tr>
+    <tr><td>Speculation max messages</td><td>100</td><td><code>speculation.ts</code></td></tr>
+    <tr><td>FileEditTool max file size</td><td>1 GiB</td><td><code>FileEditTool.ts</code></td></tr>
+    <tr><td>BashTool security rules</td><td>102 KB</td><td><code>bashSecurity.ts</code></td></tr>
+    <tr><td>Auto-background agent timeout</td><td>120 seconds</td><td><code>AgentTool.tsx</code></td></tr>
+    <tr><td>Bash classifier timeout</td><td>2 seconds</td><td><code>useCanUseTool.tsx</code></td></tr>
+  </table>
+</section>
+
+<!-- ============ TRUST GATE ============ -->
+<section id="trust">
+  <h2>Trust Gate</h2>
+  <p>All hooks require <strong>workspace trust</strong> in interactive mode. This is a defense-in-depth measure:</p>
+
+<pre><span class="kw">function</span> <span class="fn">shouldSkipHookDueToTrust</span>(): <span class="typ">boolean</span> {
+  <span class="kw">const</span> isInteractive = !<span class="fn">getIsNonInteractiveSession</span>()
+  <span class="kw">if</span> (!isInteractive) <span class="kw">return false</span>  <span class="cmt">// SDK mode: trust implicit</span>
+  <span class="kw">const</span> hasTrust = <span class="fn">checkHasTrustDialogAccepted</span>()
+  <span class="kw">return</span> !hasTrust  <span class="cmt">// Interactive: all hooks require trust</span>
+}</pre>
+
+  <p>This prevents a malicious <code>.claude/settings.json</code> in a cloned repo from executing arbitrary commands before the user accepts the trust dialog. Applied to <strong>ALL</strong> hook types with no exceptions.</p>
+</section>
+
+<div style="margin-top:80px;padding-top:32px;border-top:1px solid var(--border);color:var(--text-dim);font-size:13px;">
+  Built from analysis of the Claude Code source snapshot (March 31, 2026). Source: <code>instructkr/claude-code</code>.
+</div>
+
+</main>
+
+<script>
+// Active nav highlighting on scroll
+const sections = document.querySelectorAll('section[id], .hero[id]');
+const navLinks = document.querySelectorAll('nav a');
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(link => link.classList.remove('active'));
+      const activeLink = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+      if (activeLink) activeLink.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+
+sections.forEach(section => observer.observe(section));
+</script>
+
+</body>
+</html>
